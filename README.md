@@ -169,6 +169,12 @@ pass. The jobs succeed whatever the results: the tables are the outcome.
 
 Not run yet.
 
+## Authorship
+
+This investigation, the reproducer and this README were written with the
+help of Claude (Anthropic), through Claude Code. Claims are verified where
+stated; the hypothesis above is marked as unconfirmed on purpose.
+
 ## License
 
 MIT OR Apache-2.0, like `pasta_curves`.
