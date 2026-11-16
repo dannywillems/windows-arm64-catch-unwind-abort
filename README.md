@@ -230,6 +230,9 @@ with two.
 
 ## Next steps
 
+What `opt-level` 3 changes compared with 2, and the experiments that follow
+from it, are in [opt_level_rust.md](opt_level_rust.md).
+
 - A dependency-free variant with two catches in one function.
 - Run with `--nocapture` to see whether the first or the second catch fails.
 - Bisect the toolchain between 1.85.0 and 1.100.0 to find the release that
