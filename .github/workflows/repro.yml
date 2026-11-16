@@ -1,0 +1,78 @@
+name: Reproduce
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: ${{ matrix.os }}, Rust ${{ matrix.toolchain }}, opt-level ${{ matrix.opt }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-11-arm is the target under suspicion; windows-latest
+        # (x86-64 MSVC) and ubuntu-24.04-arm (AArch64 Linux) are controls.
+        os: [windows-11-arm, windows-latest, ubuntu-24.04-arm]
+        toolchain: ["1.85.0", stable]
+        opt: ["0", "1", "2", "3"]
+    env:
+      TOOLCHAIN: ${{ matrix.toolchain }}
+      # The configuration of the failing pasta_curves CI step: the release
+      # profile with the debug assertions and overflow checks kept.
+      CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+      CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: ${{ matrix.opt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal
+          rustc "+$TOOLCHAIN" -vV
+      - name: Build the test binary
+        shell: bash
+        run: cargo "+$TOOLCHAIN" test --release --locked --no-run
+      - name: Run every variant in its own process
+        shell: bash
+        # An abort takes the whole test binary down, so a variant that aborts
+        # must not hide the others: run each test alone and record how it
+        # ended. The job itself succeeds; the table is the result.
+        run: |
+          set -u
+          tests=$(cargo "+$TOOLCHAIN" test --release --locked -- --list 2>/dev/null \
+            | sed -n 's/: test$//p' | tr -d '\r')
+          {
+            echo "### $RUNNER_OS $RUNNER_ARCH, Rust $TOOLCHAIN, opt-level $CARGO_PROFILE_RELEASE_OPT_LEVEL"
+            echo
+            echo "| test | result |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for t in $tests; do
+            status=0
+            out=$(cargo "+$TOOLCHAIN" test --release --locked -q -- --exact "$t" 2>&1) \
+              || status=$?
+            if [ "$status" -eq 0 ]; then
+              result=pass
+            elif printf '%s\n' "$out" | grep -q 'exit code: 0x'; then
+              result="abort ($(printf '%s\n' "$out" | grep -o 'exit code: 0x[0-9a-f]*, [A-Z_]*' | head -1))"
+            elif printf '%s\n' "$out" | grep -q 'signal:'; then
+              result="abort ($(printf '%s\n' "$out" | grep -o 'signal: [0-9]*, [A-Z]*' | head -1))"
+            else
+              result="fail (status $status)"
+            fi
+            echo "$t: $result"
+            echo "| \`$t\` | $result |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != pass ]; then
+              echo "::group::output of $t"
+              printf '%s\n' "$out"
+              echo "::endgroup::"
+            fi
+          done
